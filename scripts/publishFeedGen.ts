@@ -1,102 +1,79 @@
 import dotenv from 'dotenv'
-import inquirer from 'inquirer'
+import prompts from '@inquirer/prompts'
 import { AtpAgent, BlobRef } from '@atproto/api'
 import fs from 'fs/promises'
 import { ids } from '../src/lexicon/lexicons'
+import { Algorithm, algorithmLookup, algorithms } from '../src/algos'
+import { extname } from 'path'
 
-const run = async () => {
-  dotenv.config()
+dotenv.config();
+if (!process.env.FEEDGEN_SERVICE_DID && !process.env.FEEDGEN_HOSTNAME) {
+  throw new Error('Please provide a hostname in the .env file');
+}
 
-  if (!process.env.FEEDGEN_SERVICE_DID && !process.env.FEEDGEN_HOSTNAME) {
-    throw new Error('Please provide a hostname in the .env file')
-  }
-
-  const answers = await inquirer
-    .prompt([
-      {
-        type: 'input',
-        name: 'handle',
-        message: 'Enter your Bluesky handle:',
-        required: true,
-      },
-      {
-        type: 'password',
-        name: 'password',
-        message: 'Enter your Bluesky password (preferably an App Password):',
-      },
-      {
-        type: 'input',
-        name: 'service',
-        message: 'Optionally, enter a custom PDS service to sign in with:',
-        default: 'https://bsky.social',
-        required: false,
-      },
-      {
-        type: 'input',
-        name: 'recordName',
-        message: 'Enter a short name or the record. This will be shown in the feed\'s URL:',
-        required: true,
-      },
-      {
-        type: 'input',
-        name: 'displayName',
-        message: 'Enter a display name for your feed:',
-        required: true,
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Optionally, enter a brief description of your feed:',
-        required: false,
-      },
-      {
-        type: 'input',
-        name: 'avatar',
-        message: 'Optionally, enter a local path to an avatar that will be used for the feed:',
-        required: false,
-      },
-    ])
-
-  const { handle, password, recordName, displayName, description, avatar, service } = answers
-
-  const feedGenDid =
-    process.env.FEEDGEN_SERVICE_DID ?? `did:web:${process.env.FEEDGEN_HOSTNAME}`
+async function run() {
+  const handle = await prompts.input({ message: 'Enter your Bluesky handle:', required: true });
+  const password = await prompts.password({ message: 'Enter your Bluesky password (preferably an App Password):' });
+  const service = await prompts.input({ message: 'Optionally, enter a custom PDS service to sign in with:', required: false, default: 'https://bsky.social' });
+  const algoKey = await prompts.input({ message: 'Optionally, enter a shortname to publish only that specific algorithm:', required: false });
 
   // only update this if in a test environment
-  const agent = new AtpAgent({ service: service ? service : 'https://bsky.social' })
-  await agent.login({ identifier: handle, password})
+  const agent = new AtpAgent({ service: service ?? 'https://bsky.social' });
+  await agent.login({ identifier: handle, password });
 
-  let avatarRef: BlobRef | undefined
-  if (avatar) {
-    let encoding: string
-    if (avatar.endsWith('png')) {
-      encoding = 'image/png'
-    } else if (avatar.endsWith('jpg') || avatar.endsWith('jpeg')) {
-      encoding = 'image/jpeg'
-    } else {
-      throw new Error('expected png or jpeg')
+  if (algoKey) {
+    const algo = algorithmLookup[algoKey];
+    if (!algo) {
+      throw new Error(`Unknown algorithm "${algoKey}"`);
     }
-    const img = await fs.readFile(avatar)
-    const blobRes = await agent.api.com.atproto.repo.uploadBlob(img, {
-      encoding,
-    })
-    avatarRef = blobRes.data.blob
-  }
 
+    await registerAlgorithm(agent, algo);
+  } else {
+    for (const algo of algorithms) {
+      await registerAlgorithm(agent, algo);
+    }
+  }
+}
+
+await run();
+console.log('All done 🎉');
+
+async function registerAlgorithm(agent: AtpAgent, algorithm: Algorithm): Promise<void> {
+  const avatarRef = await uploadAvatar(agent, algorithm);
+  const feedGenDid = process.env.FEEDGEN_SERVICE_DID ?? `did:web:${process.env.FEEDGEN_HOSTNAME}`;
   await agent.api.com.atproto.repo.putRecord({
     repo: agent.session?.did ?? '',
     collection: ids.AppBskyFeedGenerator,
-    rkey: recordName,
+    rkey: algorithm.shortName,
     record: {
       did: feedGenDid,
-      displayName: displayName,
-      description: description,
+      displayName: algorithm.displayName,
+      description: algorithm.description,
       avatar: avatarRef,
       createdAt: new Date().toISOString(),
     },
-  })
-
-  console.log('All done 🎉')
+  });
 }
 
-run()
+async function uploadAvatar(agent: AtpAgent, algorithm: Algorithm): Promise<BlobRef | undefined> {
+  if (!algorithm.avatarPath) return undefined;
+
+  const encoding = getEncoding(algorithm.avatarPath);
+  const img = await fs.readFile(algorithm.avatarPath);
+  const blobRes = await agent.api.com.atproto.repo.uploadBlob(img, { encoding });
+  return blobRes.data.blob;
+}
+
+function getEncoding(path: string): string {
+  const ext = extname(path).toLowerCase();
+
+  if (ext === 'png') {
+    return 'image/png';
+  }
+
+  if (ext === 'jpg' || ext === 'jpeg') {
+    return 'image/jpeg';
+  }
+
+  throw new Error(`Unsupported avatar format: ${ext}`);
+}

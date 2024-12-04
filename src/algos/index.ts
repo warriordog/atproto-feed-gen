@@ -3,12 +3,47 @@ import {
   QueryParams,
   OutputSchema as AlgoOutput,
 } from '../lexicon/types/app/bsky/feed/getFeedSkeleton'
-import * as whatsAlf from './whats-alf'
+import { whatsAlfAlgorithm } from './whats-alf'
 
-type AlgoHandler = (ctx: AppContext, params: QueryParams) => Promise<AlgoOutput>
+export type AlgoHandler = (ctx: AppContext, params: QueryParams) => Promise<AlgoOutput>
 
-const algos: Record<string, AlgoHandler> = {
-  [whatsAlf.shortname]: whatsAlf.handler,
+export interface Algorithm {
+  /**
+   * Callback to execute the algorithm.
+   */
+  handler: AlgoHandler;
+
+  /**
+   * Short name of the algorithm; will appear in the URL.
+   * Max 15 chars.
+   */
+  shortName: string;
+
+  /**
+   * Detailed name of the algorithm.
+   */
+  displayName: string;
+
+  /**
+   * Optional description of the feed / algorithm.
+   */
+  description?: string;
+
+  /**
+   * Optional local path to an avatar to upload.
+   */
+  avatarPath?: string;
 }
 
-export default algos
+export const algorithms: Algorithm[] = [
+  whatsAlfAlgorithm
+];
+
+export const algorithmLookup = algorithms.reduce((lookup, algo) => {
+  if (lookup[algo.shortName]) {
+    throw new Error(`Duplicate algorithm key ${algo.shortName}`);
+  }
+
+  lookup[algo.shortName] = algo;
+  return lookup;
+}, {} as Record<string, Algorithm>);
