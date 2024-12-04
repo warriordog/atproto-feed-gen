@@ -1,10 +1,14 @@
 {
-  "name": "feed-generator",
+  "name": "atproto-feed-gen",
   "version": "1.0.0",
-  "description": "atproto feed generator starter kit",
-  "main": "index.js",
-  "repository": "git@github.com:bluesky-social/feed-generator.git",
-  "author": "dholms <dtholmgren@gmail.com>",
+  "description": "hazelnoot's ATProto feed generators",
+  "private": true,
+  "main": "dist/src/index.js",
+  "repository": "git@github.com:warriordog/atproto-feed-gen.git",
+  "contributors": [
+    "dholms <dtholmgren@gmail.com>",
+    "hazelnoot <acomputerdog@gmail.com>"
+  ],
   "license": "MIT",
   "scripts": {
     "publishFeed": "tsc -b && node dist/scripts/publishFeedGen.js",
